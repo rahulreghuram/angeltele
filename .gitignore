@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+*.pyc
+
+# Local runtime artifacts
+logs/
+*.log
+
+# Local data snapshots
+*.csv
+
+# OS/editor junk
+.DS_Store
+.vscode/
