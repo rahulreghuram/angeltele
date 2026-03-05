@@ -18,7 +18,8 @@ from premium_selector import get_three_strikes
 from logger import log_signal
 
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time as dt_time
+from zoneinfo import ZoneInfo
 
 
 # ---------------------------------------
@@ -29,6 +30,9 @@ SL_PERCENT = 0.10
 TGT_PERCENT = 0.20
 MONITOR_INTERVAL_SEC = 5
 MONITOR_TIMEOUT_SEC = 60 * 30
+IST = ZoneInfo("Asia/Kolkata")
+MARKET_OPEN_TIME = dt_time(9, 15)
+MARKET_CLOSE_TIME = dt_time(15, 30)
 
 
 def calculate_sl_tgt(price):
@@ -40,6 +44,67 @@ def calculate_sl_tgt(price):
     tgt = round(price * (1 + TGT_PERCENT), 2)
 
     return sl, tgt
+
+
+def now_ist():
+    return datetime.now(IST)
+
+
+def is_market_open(now=None):
+    if now is None:
+        now = now_ist()
+
+    if now.weekday() >= 5:  # Saturday/Sunday
+        return False
+
+    current_time = now.time()
+    return MARKET_OPEN_TIME <= current_time <= MARKET_CLOSE_TIME
+
+
+def get_next_market_open(now=None):
+    if now is None:
+        now = now_ist()
+
+    if now.weekday() >= 5:
+        days_to_monday = 7 - now.weekday()
+        next_open = (now + timedelta(days=days_to_monday)).replace(
+            hour=MARKET_OPEN_TIME.hour,
+            minute=MARKET_OPEN_TIME.minute,
+            second=0,
+            microsecond=0,
+        )
+    elif now.time() < MARKET_OPEN_TIME:
+        next_open = now.replace(
+            hour=MARKET_OPEN_TIME.hour,
+            minute=MARKET_OPEN_TIME.minute,
+            second=0,
+            microsecond=0,
+        )
+    else:
+        next_open = (now + timedelta(days=1)).replace(
+            hour=MARKET_OPEN_TIME.hour,
+            minute=MARKET_OPEN_TIME.minute,
+            second=0,
+            microsecond=0,
+        )
+
+    while next_open.weekday() >= 5:
+        next_open += timedelta(days=1)
+
+    return next_open
+
+
+def wait_until_market_open():
+    now = now_ist()
+    next_open = get_next_market_open(now)
+    sleep_seconds = (next_open - now).total_seconds()
+
+    if sleep_seconds > 0:
+        print(
+            f"⏸ Market closed (IST {now.strftime('%Y-%m-%d %H:%M:%S')}). "
+            f"Sleeping until IST {next_open.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        time.sleep(sleep_seconds)
 
 
 # ---------------------------------------
@@ -75,6 +140,9 @@ def monitor_trade(obj, token, symbol, sl, tgt):
     last_price = None
 
     while time.time() - start_ts <= MONITOR_TIMEOUT_SEC:
+        if not is_market_open():
+            return "MARKET CLOSED", last_price
+
         current_price = get_option_price(obj, token, symbol)
 
         if current_price is None:
@@ -98,7 +166,7 @@ def wait_until_next_5min_slot():
     """
     Sleep until the next exact 5-minute boundary (e.g. 09:15, 09:20).
     """
-    now = datetime.now()
+    now = now_ist()
     next_block_minute = ((now.minute // 5) + 1) * 5
 
     if next_block_minute >= 60:
@@ -106,9 +174,13 @@ def wait_until_next_5min_slot():
     else:
         next_run = now.replace(minute=next_block_minute, second=0, microsecond=0)
 
+    if next_run.time() > MARKET_CLOSE_TIME:
+        wait_until_market_open()
+        return
+
     sleep_seconds = (next_run - now).total_seconds()
     if sleep_seconds > 0:
-        print(f"⏱ Waiting for next fetch at {next_run.strftime('%H:%M:%S')}")
+        print(f"⏱ Waiting for next fetch at IST {next_run.strftime('%H:%M:%S')}")
         time.sleep(sleep_seconds)
 
 
@@ -149,6 +221,10 @@ else:
 # ---------------------------------------
 
 while True:
+    if not is_market_open():
+        wait_until_market_open()
+        continue
+
     wait_until_next_5min_slot()
 
     print("\n🔍 Checking Market Conditions...")

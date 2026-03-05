@@ -1,13 +1,15 @@
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 TIMEFRAME_INTERVAL = "FIVE_MINUTE"
+IST = ZoneInfo("Asia/Kolkata")
 
 
 def fetch_nifty_data(obj):
 
     # Date range (last 5 days)
-    to_date = datetime.now()
+    to_date = datetime.now(IST)
     from_date = to_date - timedelta(days=5)
 
     historicParam = {
