@@ -2,6 +2,19 @@ import json
 import os
 import re
 
+try:
+    from config import (
+        VERTEX_LOCATION as CFG_VERTEX_LOCATION,
+        VERTEX_MIN_CONFIDENCE as CFG_VERTEX_MIN_CONFIDENCE,
+        VERTEX_MODEL as CFG_VERTEX_MODEL,
+        VERTEX_PROJECT_ID as CFG_VERTEX_PROJECT_ID,
+    )
+except Exception:
+    CFG_VERTEX_PROJECT_ID = ""
+    CFG_VERTEX_LOCATION = "us-central1"
+    CFG_VERTEX_MODEL = "gemini-1.5-flash-002"
+    CFG_VERTEX_MIN_CONFIDENCE = 0.55
+
 
 def _target_from_risk(entry_price, stop_loss, signal_type):
     risk = abs(entry_price - stop_loss)
@@ -38,10 +51,15 @@ def get_vertex_signal(df):
         print(f"⚠️ Vertex AI SDK unavailable: {exc}")
         return None
 
-    project_id = os.environ.get("VERTEX_PROJECT_ID", "").strip()
-    location = os.environ.get("VERTEX_LOCATION", "us-central1").strip()
-    model_name = os.environ.get("VERTEX_MODEL", "gemini-1.5-flash-002").strip()
-    min_confidence = float(os.environ.get("VERTEX_MIN_CONFIDENCE", "0.55"))
+    project_id = os.environ.get("VERTEX_PROJECT_ID", str(CFG_VERTEX_PROJECT_ID)).strip()
+    location = os.environ.get("VERTEX_LOCATION", str(CFG_VERTEX_LOCATION)).strip()
+    model_name = os.environ.get("VERTEX_MODEL", str(CFG_VERTEX_MODEL)).strip()
+    try:
+        min_confidence = float(
+            os.environ.get("VERTEX_MIN_CONFIDENCE", str(CFG_VERTEX_MIN_CONFIDENCE))
+        )
+    except Exception:
+        min_confidence = 0.55
 
     if not project_id:
         print("⚠️ VERTEX_PROJECT_ID not configured")
