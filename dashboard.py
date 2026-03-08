@@ -11,6 +11,7 @@ from bot_runtime import (
     stop_bot,
     sync_settings_with_runtime,
 )
+from telegram_alert import send_bot_status_message
 
 
 # -----------------------------
@@ -19,6 +20,7 @@ from bot_runtime import (
 BASE_DIR = Path(__file__).resolve().parent
 LIVE_DATA_FILE = BASE_DIR / "live_data.csv"
 SIGNALS_FILE = BASE_DIR / "signals_log.csv"
+NIFTY_5MIN_FILE = BASE_DIR / "nifty_5min_data.csv"
 DEFAULT_PASSWORD = "bot123"
 REFRESH_SECONDS = 5
 
@@ -33,6 +35,63 @@ def safe_rerun() -> None:
         rerun_fn()
     else:
         st.rerun()
+
+
+def initialize_ui_state(settings: dict) -> None:
+    """Initialize dashboard session-state fields used by confirmation flow."""
+    if "bot_toggle_ui" not in st.session_state:
+        st.session_state.bot_toggle_ui = settings["bot_running"]
+    if "bot_confirm_pending" not in st.session_state:
+        st.session_state.bot_confirm_pending = False
+    if "bot_pending_target" not in st.session_state:
+        st.session_state.bot_pending_target = settings["bot_running"]
+    if "bot_apply_target" not in st.session_state:
+        st.session_state.bot_apply_target = None
+    if "bot_skip_toggle_check" not in st.session_state:
+        st.session_state.bot_skip_toggle_check = False
+
+
+def open_bot_status_confirmation(target_state: bool, current_state: bool) -> None:
+    """Open a confirmation popup for bot ON/OFF switch."""
+    dialog_api = getattr(st, "dialog", None)
+    target_text = "ON" if target_state else "OFF"
+
+    if callable(dialog_api):
+        @st.dialog("Confirm Bot Status")
+        def _confirm_dialog():
+            st.write(f"Please confirm: switch bot status to **{target_text}**?")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Confirm", type="primary", use_container_width=True):
+                    st.session_state.bot_apply_target = target_state
+                    st.session_state.bot_toggle_ui = target_state
+                    st.session_state.bot_confirm_pending = False
+                    st.session_state.bot_skip_toggle_check = True
+                    safe_rerun()
+            with col2:
+                if st.button("Cancel", use_container_width=True):
+                    st.session_state.bot_toggle_ui = current_state
+                    st.session_state.bot_confirm_pending = False
+                    st.session_state.bot_skip_toggle_check = True
+                    safe_rerun()
+
+        _confirm_dialog()
+    else:
+        st.warning(f"Confirm bot status change to {target_text}.")
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Confirm Bot Status", type="primary"):
+                st.session_state.bot_apply_target = target_state
+                st.session_state.bot_toggle_ui = target_state
+                st.session_state.bot_confirm_pending = False
+                st.session_state.bot_skip_toggle_check = True
+                safe_rerun()
+        with col2:
+            if st.button("Cancel Bot Status"):
+                st.session_state.bot_toggle_ui = current_state
+                st.session_state.bot_confirm_pending = False
+                st.session_state.bot_skip_toggle_check = True
+                safe_rerun()
 
 
 def load_live_data() -> pd.DataFrame:
@@ -83,6 +142,25 @@ def load_signals() -> pd.DataFrame:
             df[col] = pd.NA
 
     return df[expected_cols].tail(20)
+
+
+def load_nifty_5min_data() -> pd.DataFrame:
+    """Load NIFTY 5-minute candle CSV if present."""
+    expected_cols = ["datetime", "open", "high", "low", "close", "volume"]
+
+    if not NIFTY_5MIN_FILE.exists():
+        return pd.DataFrame(columns=expected_cols)
+
+    try:
+        df = pd.read_csv(NIFTY_5MIN_FILE)
+    except Exception:
+        return pd.DataFrame(columns=expected_cols)
+
+    for col in expected_cols:
+        if col not in df.columns:
+            df[col] = pd.NA
+
+    return df[expected_cols]
 
 
 def status_badge(label: str, is_on: bool, on_text: str = "ON", off_text: str = "OFF") -> str:
@@ -175,8 +253,12 @@ if not st.session_state.authenticated:
 # Authenticated dashboard
 # -----------------------------
 settings = sync_settings_with_runtime()
+initialize_ui_state(settings)
+if not st.session_state.bot_confirm_pending and st.session_state.bot_apply_target is None:
+    st.session_state.bot_toggle_ui = settings["bot_running"]
 live_df = load_live_data()
 signals_df = load_signals()
+nifty_5min_df = load_nifty_5min_data()
 
 # Top row: Bot Status | Controls
 left_top, right_top = st.columns([1, 1])
@@ -237,7 +319,27 @@ with right_top:
         options=["manual", "vertex_ai"],
         index=0 if settings.get("strategy_mode", "manual") == "manual" else 1,
     )
-    bot_running = st.toggle("Bot Status (RUNNING/STOPPED)", value=settings["bot_running"])
+    bot_toggle_ui = st.toggle(
+        "Bot Status (RUNNING/STOPPED)",
+        value=st.session_state.bot_toggle_ui,
+        key="bot_toggle_ui",
+    )
+
+    if st.session_state.bot_skip_toggle_check:
+        st.session_state.bot_skip_toggle_check = False
+    elif bot_toggle_ui != settings["bot_running"]:
+        st.session_state.bot_pending_target = bot_toggle_ui
+        st.session_state.bot_confirm_pending = True
+        st.session_state.bot_toggle_ui = settings["bot_running"]
+        safe_rerun()
+
+    if st.session_state.bot_confirm_pending:
+        open_bot_status_confirmation(st.session_state.bot_pending_target, settings["bot_running"])
+
+    bot_running = settings["bot_running"]
+    if st.session_state.bot_apply_target is not None:
+        bot_running = bool(st.session_state.bot_apply_target)
+        st.session_state.bot_apply_target = None
 
     updated_settings = {
         "telegram": telegram,
@@ -264,6 +366,13 @@ with right_top:
                     st.error(msg)
 
             updated_settings["bot_running"] = bot_is_running()
+
+            if updated_settings.get("telegram", True):
+                send_bot_status_message(
+                    updated_settings["bot_running"],
+                    auto_signal=updated_settings.get("autotrade", False),
+                    ai_signal=updated_settings.get("ai_strategy_enabled", False),
+                )
 
         save_settings(updated_settings)
         st.success("Settings synced to bot_settings.json")
@@ -310,6 +419,30 @@ else:
         st.metric("RSI Value", f"{rsi_val:.2f}" if pd.notna(rsi_val) else "N/A")
 
 st.dataframe(live_df, use_container_width=True)
+
+# NIFTY 5-minute CSV access panel.
+st.markdown("### NIFTY 5-Minute Data")
+nifty_col1, nifty_col2 = st.columns([1, 1])
+with nifty_col1:
+    if NIFTY_5MIN_FILE.exists():
+        st.success(f"CSV ready: {NIFTY_5MIN_FILE.name}")
+        st.caption(f"Rows: {len(nifty_5min_df)}")
+    else:
+        st.warning("nifty_5min_data.csv not found yet. Start the bot to generate it.")
+
+with nifty_col2:
+    if NIFTY_5MIN_FILE.exists():
+        csv_bytes = NIFTY_5MIN_FILE.read_bytes()
+        st.download_button(
+            label="Download NIFTY 5-min CSV",
+            data=csv_bytes,
+            file_name="nifty_5min_data.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+if not nifty_5min_df.empty:
+    st.dataframe(nifty_5min_df.tail(20), use_container_width=True, height=260)
 
 
 # Bottom row: Chart | Signal History
@@ -364,6 +497,9 @@ with signal_col:
 # -----------------------------
 # Auto refresh (required)
 # -----------------------------
-st.caption(f"Auto-refresh every {REFRESH_SECONDS} seconds")
-time.sleep(REFRESH_SECONDS)
-safe_rerun()
+if st.session_state.get("bot_confirm_pending", False):
+    st.caption("Auto-refresh paused while bot status confirmation is open.")
+else:
+    st.caption(f"Auto-refresh every {REFRESH_SECONDS} seconds")
+    time.sleep(REFRESH_SECONDS)
+    safe_rerun()

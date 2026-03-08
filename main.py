@@ -231,7 +231,11 @@ scrip_db = get_scrip_master()
 
 print("✅ Scrip Master Loaded")
 runtime_settings = load_settings()
-if runtime_settings.get("telegram", True) and send_startup_message():
+if runtime_settings.get("telegram", True) and send_startup_message(
+    auto_signal=runtime_settings.get("autotrade", False),
+    ai_signal=runtime_settings.get("ai_strategy_enabled", False),
+    bot_running=runtime_settings.get("bot_running", True),
+):
     print("📩 Startup Telegram confirmation sent")
 else:
     print("ℹ️ Telegram startup message skipped or failed")
@@ -367,7 +371,10 @@ while True:
                 sent = send_premium_options(
                     "NIFTY",
                     option_type,
-                    options
+                    options,
+                    auto_signal=runtime_settings.get("autotrade", False),
+                    ai_signal=runtime_settings.get("ai_strategy_enabled", False),
+                    bot_running=runtime_settings.get("bot_running", True),
                 )
 
                 if not sent:
@@ -446,7 +453,10 @@ while True:
                     selected["symbol"],
                     entry,
                     sl,
-                    tgt
+                    tgt,
+                    auto_signal=runtime_settings.get("autotrade", False),
+                    ai_signal=runtime_settings.get("ai_strategy_enabled", False),
+                    bot_running=runtime_settings.get("bot_running", True),
                 )
 
 

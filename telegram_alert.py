@@ -5,6 +5,17 @@ API_BASE = f"https://api.telegram.org/bot{BOT_TOKEN}"
 LAST_UPDATE_ID = None
 
 
+def _status_lines(auto_signal=None, ai_signal=None, bot_running=None):
+    lines = []
+    if auto_signal is not None:
+        lines.append(f"Auto Signal: {'ON' if auto_signal else 'OFF'}")
+    if ai_signal is not None:
+        lines.append(f"AI Signal: {'ON' if ai_signal else 'OFF'}")
+    if bot_running is not None:
+        lines.append(f"Bot Status: {'ON' if bot_running else 'OFF'}")
+    return lines
+
+
 def _post(method, payload):
     try:
         response = requests.post(
@@ -54,7 +65,14 @@ def mark_telegram_updates_seen():
 # SEND OPTION CHOICES
 # -----------------------------
 
-def send_premium_options(index, direction, options):
+def send_premium_options(
+    index,
+    direction,
+    options,
+    auto_signal=None,
+    ai_signal=None,
+    bot_running=None
+):
 
     """
     Sends 3 option premiums to telegram
@@ -82,6 +100,10 @@ def send_premium_options(index, direction, options):
     lines.append("")
     lines.append("Which premium do you want to buy?")
     lines.append("Reply: 1 / 2 / 3")
+    status_lines = _status_lines(auto_signal, ai_signal, bot_running)
+    if status_lines:
+        lines.append("")
+        lines.extend(status_lines)
     message = "\n".join(lines)
 
     ok, _ = _post(
@@ -94,18 +116,32 @@ def send_premium_options(index, direction, options):
     return ok
 
 
-def send_telegram_alert(index, direction, strike, price, rsi):
+def send_telegram_alert(
+    index,
+    direction,
+    strike,
+    price,
+    rsi,
+    auto_signal=None,
+    ai_signal=None,
+    bot_running=None
+):
     """
     Backward-compatible single alert sender.
     """
-    message = (
-        "OPTION ALERT\n\n"
-        f"Index: {index}\n"
-        f"Direction: {direction}\n"
-        f"Strike: {strike}\n"
-        f"Price: {price}\n"
-        f"RSI: {rsi}"
-    )
+    lines = [
+        "OPTION ALERT",
+        "",
+        f"Index: {index}",
+        f"Direction: {direction}",
+        f"Strike: {strike}",
+        f"Price: {price}",
+        f"RSI: {rsi}",
+    ]
+    status_lines = _status_lines(auto_signal, ai_signal, bot_running)
+    if status_lines:
+        lines.extend(status_lines)
+    message = "\n".join(lines)
     ok, _ = _post(
         "sendMessage",
         {
@@ -116,16 +152,28 @@ def send_telegram_alert(index, direction, strike, price, rsi):
     return ok
 
 
-def send_trade_selection(symbol, entry, sl, tgt):
+def send_trade_selection(
+    symbol,
+    entry,
+    sl,
+    tgt,
+    auto_signal=None,
+    ai_signal=None,
+    bot_running=None
+):
     """
     Send selected trade details to Telegram.
     """
-    message = (
-        f"Option Selected: {symbol}\n"
-        f"Entry: {entry}\n"
-        f"Stop Loss: {sl}\n"
-        f"Target: {tgt}"
-    )
+    lines = [
+        f"Option Selected: {symbol}",
+        f"Entry: {entry}",
+        f"Stop Loss: {sl}",
+        f"Target: {tgt}",
+    ]
+    status_lines = _status_lines(auto_signal, ai_signal, bot_running)
+    if status_lines:
+        lines.extend(status_lines)
+    message = "\n".join(lines)
     ok, _ = _post(
         "sendMessage",
         {
@@ -136,11 +184,34 @@ def send_trade_selection(symbol, entry, sl, tgt):
     return ok
 
 
-def send_startup_message():
+def send_startup_message(auto_signal=None, ai_signal=None, bot_running=None):
     """
     Send startup ping to confirm bot is connected.
     """
-    message = "Bot connected and running. Monitoring NIFTY strategy now."
+    lines = ["Bot connected and running. Monitoring NIFTY strategy now."]
+    status_lines = _status_lines(auto_signal, ai_signal, bot_running)
+    if status_lines:
+        lines.extend([""] + status_lines)
+    message = "\n".join(lines)
+    ok, _ = _post(
+        "sendMessage",
+        {
+            "chat_id": CHAT_ID,
+            "text": message
+        }
+    )
+    return ok
+
+
+def send_bot_status_message(bot_running, auto_signal=None, ai_signal=None):
+    """
+    Send bot ON/OFF status update to Telegram.
+    """
+    lines = [f"Bot is now {'ON' if bot_running else 'OFF'}."]
+    status_lines = _status_lines(auto_signal, ai_signal, bot_running)
+    if status_lines:
+        lines.extend([""] + status_lines)
+    message = "\n".join(lines)
     ok, _ = _post(
         "sendMessage",
         {

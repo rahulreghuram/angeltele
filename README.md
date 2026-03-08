@@ -74,7 +74,23 @@ streamlit run dashboard.py --server.address 127.0.0.1 --server.port 8501
 - `Strategy Mode`:
   - `manual`: use local indicator strategy from `strategy.py`
   - `vertex_ai`: use Vertex AI signal path from `vertex_strategy.py`
+- `Bot Status (RUNNING/STOPPED)`: changing this switch now asks for confirmation before applying ON/OFF state
 - If Vertex AI is unavailable, invalid, or low confidence, bot falls back to manual strategy for that cycle.
+
+## Dashboard Enhancements
+
+- Added `NIFTY 5-Minute Data` panel with:
+  - CSV availability status
+  - row count preview
+  - one-click CSV download for `nifty_5min_data.csv`
+  - table preview of latest rows
+- Auto-refresh pauses while bot status confirmation is open to avoid accidental state changes.
+
+## Telegram Status Context
+
+- Startup message now includes current `Auto Signal`, `AI Signal`, and `Bot Status`.
+- Premium options, alerts, and trade selection notifications can include runtime status context.
+- New explicit bot ON/OFF status message is sent when bot status is changed from dashboard (if Telegram is enabled).
 
 ## Optional Utilities
 

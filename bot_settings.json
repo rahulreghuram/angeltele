@@ -1,5 +1,7 @@
 {
   "telegram": true,
   "autotrade": false,
+  "ai_strategy_enabled": false,
+  "strategy_mode": "manual",
   "bot_running": true
 }
