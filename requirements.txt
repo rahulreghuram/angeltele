@@ -1,0 +1,8 @@
+smartapi-python
+pyotp
+pandas
+ta
+requests
+streamlit
+plotly
+google-cloud-aiplatform

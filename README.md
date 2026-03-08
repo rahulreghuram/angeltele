@@ -68,6 +68,81 @@ Run dashboard:
 streamlit run dashboard.py --server.address 127.0.0.1 --server.port 8501
 ```
 
+## Deploy Live On Google Cloud VM (Compute Engine)
+
+This repo now includes production service files so the dashboard and bot run continuously with auto-restart.
+
+### 1) Create a VM
+
+From your machine with `gcloud` installed:
+
+```bash
+gcloud compute instances create angel-bot-vm \
+  --zone=asia-south1-a \
+  --machine-type=e2-medium \
+  --image-family=ubuntu-2204-lts \
+  --image-project=ubuntu-os-cloud \
+  --boot-disk-size=30GB
+```
+
+Open dashboard port:
+
+```bash
+gcloud compute firewall-rules create angel-dashboard-8501 \
+  --allow=tcp:8501 \
+  --target-tags=angel-dashboard
+gcloud compute instances add-tags angel-bot-vm \
+  --zone=asia-south1-a \
+  --tags=angel-dashboard
+```
+
+### 2) Copy project and run bootstrap
+
+SSH into VM and clone/copy this repo to `~/angel_bot`, then run:
+
+```bash
+cd ~/angel_bot
+chmod +x deploy/gcp/bootstrap_vm.sh
+APP_DIR=$HOME/angel_bot APP_USER=$(whoami) ./deploy/gcp/bootstrap_vm.sh
+```
+
+This installs dependencies, creates/uses `.venv`, installs two `systemd` services, enables startup on reboot, and starts them:
+- `angel-dashboard.service`
+- `angel-bot-daemon.service`
+
+### 3) Verify services
+
+```bash
+sudo systemctl status angel-dashboard.service
+sudo systemctl status angel-bot-daemon.service
+```
+
+Live logs:
+
+```bash
+journalctl -u angel-dashboard.service -f
+journalctl -u angel-bot-daemon.service -f
+tail -f bot_runtime.log
+```
+
+### 4) Access dashboard
+
+```bash
+curl ifconfig.me
+```
+
+Open in browser:
+
+```text
+http://<VM_EXTERNAL_IP>:8501
+```
+
+### Notes
+
+- Bot ON/OFF toggle from dashboard still works.
+- `angel-bot-daemon.service` keeps bot process aligned with `bot_settings.json` and restarts it if it dies.
+- Keep credentials secure. Prefer environment variables or a VM-local private config for production.
+
 ## Strategy Control (Dashboard)
 
 - `AI Strategy (ON/OFF)`: enable or disable AI signal generation
