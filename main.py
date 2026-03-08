@@ -5,6 +5,7 @@
 from login import angel_login
 from data_fetch import fetch_nifty_data
 from strategy import apply_indicators, check_signal
+from vertex_strategy import get_vertex_signal
 from options_logic import get_atm_strike
 from token_lookup import get_scrip_master, get_option_token
 from telegram_alert import (
@@ -16,8 +17,10 @@ from telegram_alert import (
 )
 from premium_selector import get_three_strikes
 from logger import log_signal
+from bot_runtime import load_settings
 
 import time
+from pathlib import Path
 from datetime import datetime, timedelta, time as dt_time
 from zoneinfo import ZoneInfo
 
@@ -33,6 +36,7 @@ MONITOR_TIMEOUT_SEC = 60 * 30
 IST = ZoneInfo("Asia/Kolkata")
 MARKET_OPEN_TIME = dt_time(9, 15)
 MARKET_CLOSE_TIME = dt_time(15, 30)
+LIVE_DATA_FILE = Path("live_data.csv")
 
 
 def calculate_sl_tgt(price):
@@ -184,6 +188,22 @@ def wait_until_next_5min_slot():
         time.sleep(sleep_seconds)
 
 
+def write_live_data(df):
+    """
+    Persist latest NIFTY price/indicator data for the dashboard.
+    """
+    if df is None or df.empty:
+        return
+
+    live_df = df[["close", "EMA9", "EMA15", "RSI"]].tail(120).copy()
+    live_df.insert(0, "Index", "NIFTY")
+    live_df.rename(
+        columns={"close": "Price", "EMA9": "EMA9", "EMA15": "EMA15", "RSI": "RSI"},
+        inplace=True,
+    )
+    live_df.to_csv(LIVE_DATA_FILE, index=False)
+
+
 # ---------------------------------------
 # START BOT
 # ---------------------------------------
@@ -210,10 +230,15 @@ if obj is None:
 scrip_db = get_scrip_master()
 
 print("✅ Scrip Master Loaded")
-if send_startup_message():
+runtime_settings = load_settings()
+if runtime_settings.get("telegram", True) and send_startup_message():
     print("📩 Startup Telegram confirmation sent")
 else:
-    print("⚠️ Startup Telegram confirmation failed")
+    print("ℹ️ Telegram startup message skipped or failed")
+print(
+    f"🧠 Strategy mode: {runtime_settings.get('strategy_mode', 'manual')} | "
+    f"AI enabled: {runtime_settings.get('ai_strategy_enabled', False)}"
+)
 
 
 # ---------------------------------------
@@ -221,6 +246,13 @@ else:
 # ---------------------------------------
 
 while True:
+    runtime_settings = load_settings()
+
+    if not runtime_settings.get("bot_running", True):
+        print("⏸ Bot paused from dashboard. Waiting...")
+        time.sleep(5)
+        continue
+
     if not is_market_open():
         wait_until_market_open()
         continue
@@ -247,8 +279,23 @@ while True:
     # ---------------------------------------
 
     df = apply_indicators(df)
+    write_live_data(df)
 
-    signal = check_signal(df)
+    ai_strategy_enabled = runtime_settings.get("ai_strategy_enabled", False)
+    strategy_mode = runtime_settings.get("strategy_mode", "manual")
+
+    if ai_strategy_enabled and strategy_mode == "vertex_ai":
+        signal = get_vertex_signal(df)
+        if signal:
+            print(
+                f"🧠 Vertex AI signal: {signal.get('signal_type')} "
+                f"(confidence={signal.get('confidence', 'n/a')})"
+            )
+        else:
+            print("ℹ️ Vertex AI produced no valid signal, using manual strategy fallback")
+            signal = check_signal(df)
+    else:
+        signal = check_signal(df)
 
 
     # ---------------------------------------
@@ -316,40 +363,69 @@ while True:
                 [(o["strike"], o["price"], o["symbol"]) for o in options]
             )
 
-            sent = send_premium_options(
-                "NIFTY",
-                option_type,
-                options
-            )
+            if runtime_settings.get("telegram", True):
+                sent = send_premium_options(
+                    "NIFTY",
+                    option_type,
+                    options
+                )
 
-            if not sent:
-                print("⚠️ Failed to send Telegram message")
-                time.sleep(10)
+                if not sent:
+                    print("⚠️ Failed to send Telegram message")
+                    time.sleep(10)
+                    continue
+
+                print("📩 Telegram message sent")
+            else:
+                print("ℹ️ Telegram Alerts OFF. Skipping Telegram send.")
+
+            if not runtime_settings.get("autotrade", False):
+                print("ℹ️ Auto Trading OFF. Logging signal only.")
+                log_signal(
+                    "NIFTY",
+                    option_type,
+                    "-",
+                    atm,
+                    "",
+                    "",
+                    "",
+                    rsi,
+                    "SIGNAL ONLY",
+                    ""
+                )
                 continue
 
-            print("📩 Telegram message sent")
+            selected = None
 
-            print("Waiting for telegram reply...")
-            mark_telegram_updates_seen()
+            if runtime_settings.get("telegram", True):
+                print("Waiting for telegram reply...")
+                mark_telegram_updates_seen()
+                valid_choices = ["1", "2", "3"]
 
-            valid_choices = ["1", "2", "3"]
+                # ---------------------------------------
+                # WAIT FOR USER SELECTION
+                # ---------------------------------------
 
+                while True:
+                    latest_settings = load_settings()
+                    if not latest_settings.get("bot_running", True):
+                        print("⏹ Bot stopped from dashboard while waiting for reply.")
+                        break
 
-            # ---------------------------------------
-            # WAIT FOR USER SELECTION
-            # ---------------------------------------
+                    reply = get_telegram_reply(allowed_replies=valid_choices)
 
-            while True:
+                    if reply in valid_choices:
+                        selected = options[int(reply) - 1]
+                        break
 
-                reply = get_telegram_reply(allowed_replies=valid_choices)
+                    time.sleep(5)
+            else:
+                # Auto-select middle strike when Telegram is OFF and Auto Trade is ON.
+                selected = options[1]
+                print(f"🤖 Auto-selected {selected['symbol']} (middle strike)")
 
-                if reply in valid_choices:
-
-                    selected = options[int(reply) - 1]
-
-                    break
-
-                time.sleep(5)
+            if selected is None:
+                continue
 
             # ---------------------------------------
             # CALCULATE SL / TARGET
@@ -365,12 +441,13 @@ while True:
             print("Stop Loss:", sl)
             print("Target:", tgt)
 
-            send_trade_selection(
-                selected["symbol"],
-                entry,
-                sl,
-                tgt
-            )
+            if runtime_settings.get("telegram", True):
+                send_trade_selection(
+                    selected["symbol"],
+                    entry,
+                    sl,
+                    tgt
+                )
 
 
             # ---------------------------------------
@@ -392,7 +469,7 @@ while True:
             # ---------------------------------------
             log_signal(
                 "NIFTY",
-                signal["signal_type"],
+                option_type,
                 selected["symbol"],
                 selected["strike"],
                 entry,
