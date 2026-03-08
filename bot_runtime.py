@@ -15,6 +15,8 @@ DEFAULT_SETTINGS = {
     "telegram": True,
     "autotrade": False,
     "bot_running": False,
+    "ai_strategy_enabled": False,
+    "strategy_mode": "manual",
 }
 
 
@@ -34,6 +36,14 @@ def load_settings() -> dict:
         "telegram": bool(data.get("telegram", DEFAULT_SETTINGS["telegram"])),
         "autotrade": bool(data.get("autotrade", DEFAULT_SETTINGS["autotrade"])),
         "bot_running": bool(data.get("bot_running", DEFAULT_SETTINGS["bot_running"])),
+        "ai_strategy_enabled": bool(
+            data.get("ai_strategy_enabled", DEFAULT_SETTINGS["ai_strategy_enabled"])
+        ),
+        "strategy_mode": (
+            data.get("strategy_mode", DEFAULT_SETTINGS["strategy_mode"])
+            if data.get("strategy_mode", DEFAULT_SETTINGS["strategy_mode"]) in {"manual", "vertex_ai"}
+            else DEFAULT_SETTINGS["strategy_mode"]
+        ),
     }
 
 

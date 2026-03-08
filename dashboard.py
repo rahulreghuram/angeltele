@@ -203,6 +203,14 @@ with left_top:
         status_badge("Auto Trade", settings["autotrade"]),
         unsafe_allow_html=True,
     )
+    st.markdown(
+        status_badge("AI Strategy", settings.get("ai_strategy_enabled", False)),
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<div class='status-item'><b>Strategy Mode</b>: {settings.get('strategy_mode', 'manual')}</div>",
+        unsafe_allow_html=True,
+    )
     st.markdown("</div>", unsafe_allow_html=True)
 
     # Safety rule panel to make behavior explicit.
@@ -220,11 +228,22 @@ with right_top:
     # Toggle controls for bot behavior.
     telegram = st.toggle("Telegram Alerts", value=settings["telegram"])
     autotrade = st.toggle("Auto Trading", value=settings["autotrade"])
+    ai_strategy_enabled = st.toggle(
+        "AI Strategy (ON/OFF)",
+        value=settings.get("ai_strategy_enabled", False),
+    )
+    strategy_mode = st.selectbox(
+        "Strategy Mode",
+        options=["manual", "vertex_ai"],
+        index=0 if settings.get("strategy_mode", "manual") == "manual" else 1,
+    )
     bot_running = st.toggle("Bot Status (RUNNING/STOPPED)", value=settings["bot_running"])
 
     updated_settings = {
         "telegram": telegram,
         "autotrade": autotrade,
+        "ai_strategy_enabled": ai_strategy_enabled,
+        "strategy_mode": strategy_mode,
         "bot_running": bot_running,
     }
 

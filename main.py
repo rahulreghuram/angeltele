@@ -5,6 +5,7 @@
 from login import angel_login
 from data_fetch import fetch_nifty_data
 from strategy import apply_indicators, check_signal
+from vertex_strategy import get_vertex_signal
 from options_logic import get_atm_strike
 from token_lookup import get_scrip_master, get_option_token
 from telegram_alert import (
@@ -234,6 +235,10 @@ if runtime_settings.get("telegram", True) and send_startup_message():
     print("📩 Startup Telegram confirmation sent")
 else:
     print("ℹ️ Telegram startup message skipped or failed")
+print(
+    f"🧠 Strategy mode: {runtime_settings.get('strategy_mode', 'manual')} | "
+    f"AI enabled: {runtime_settings.get('ai_strategy_enabled', False)}"
+)
 
 
 # ---------------------------------------
@@ -276,7 +281,21 @@ while True:
     df = apply_indicators(df)
     write_live_data(df)
 
-    signal = check_signal(df)
+    ai_strategy_enabled = runtime_settings.get("ai_strategy_enabled", False)
+    strategy_mode = runtime_settings.get("strategy_mode", "manual")
+
+    if ai_strategy_enabled and strategy_mode == "vertex_ai":
+        signal = get_vertex_signal(df)
+        if signal:
+            print(
+                f"🧠 Vertex AI signal: {signal.get('signal_type')} "
+                f"(confidence={signal.get('confidence', 'n/a')})"
+            )
+        else:
+            print("ℹ️ Vertex AI produced no valid signal, using manual strategy fallback")
+            signal = check_signal(df)
+    else:
+        signal = check_signal(df)
 
 
     # ---------------------------------------
