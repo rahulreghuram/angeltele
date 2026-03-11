@@ -6,6 +6,10 @@ TIMEFRAME_INTERVAL = "FIVE_MINUTE"
 IST = ZoneInfo("Asia/Kolkata")
 
 
+class SessionExpiredError(Exception):
+    """Raised when the Angel session/token is no longer valid."""
+
+
 def fetch_nifty_data(obj):
 
     # Date range (last 5 days)
@@ -24,11 +28,26 @@ def fetch_nifty_data(obj):
 
     response = obj.getCandleData(historicParam)
 
-    if response['status'] == False:
+    if not isinstance(response, dict):
+        print("Error fetching data: unexpected response:", response)
+        return None
+
+    status = response.get("status")
+    success = response.get("success")
+    error_code = response.get("errorCode")
+    message = str(response.get("message", "")).strip()
+
+    if error_code == "AG8001" or message.lower() == "invalid token":
+        raise SessionExpiredError(f"Angel session expired: {response}")
+
+    if status is False or success is False:
         print("Error fetching data:", response)
         return None
 
-    data = response['data']
+    data = response.get("data")
+    if not data:
+        print("Error fetching data: empty candle payload:", response)
+        return None
 
     df = pd.DataFrame(data, columns=[
         "datetime",

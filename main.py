@@ -3,7 +3,7 @@
 # ---------------------------------------
 
 from login import angel_login
-from data_fetch import fetch_nifty_data
+from data_fetch import SessionExpiredError, fetch_nifty_data
 from strategy import apply_indicators, check_signal
 from vertex_strategy import get_vertex_signal
 from options_logic import get_atm_strike
@@ -245,6 +245,18 @@ print(
 )
 
 
+def refresh_login_session():
+    """Recreate the Angel session after token expiry."""
+    print("🔐 Refreshing Angel One session...")
+    refreshed_obj = angel_login()
+    if refreshed_obj is None:
+        print("❌ Session refresh failed")
+        return None
+
+    print("✅ Session refreshed")
+    return refreshed_obj
+
+
 # ---------------------------------------
 # MAIN BOT LOOP
 # ---------------------------------------
@@ -269,7 +281,21 @@ while True:
     # FETCH NIFTY DATA
     # ---------------------------------------
 
-    df = fetch_nifty_data(obj)
+    try:
+        df = fetch_nifty_data(obj)
+    except SessionExpiredError as exc:
+        print(f"⚠️ {exc}")
+        obj = refresh_login_session()
+        if obj is None:
+            time.sleep(30)
+            continue
+
+        try:
+            df = fetch_nifty_data(obj)
+        except SessionExpiredError as retry_exc:
+            print(f"⚠️ Session still invalid after refresh: {retry_exc}")
+            time.sleep(30)
+            continue
 
     if df is None:
 
